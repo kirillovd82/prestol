@@ -23,6 +23,30 @@ function titleFor(points) {
   for (const x of DATA.titles) if (points >= x.min) t = x.name;
   return t;
 }
+
+/* ---------- телеметрия (статистика для родителей) ---------- */
+const TL = {
+  endpoint: 'https://game-metrics.kirillovd.workers.dev/track',
+  q: [], timer: null, logged: false, curReign: null,
+  send: function (t, d) {
+    try {
+      const p = P();
+      this.q.push({ t: t, g: 'prestol', p: p ? p.name : '—', d: String(d || '').slice(0, 150), ts: Date.now() });
+      if (this.q.length >= 10) this.flush();
+      else if (!this.timer) this.timer = setTimeout(() => this.flush(), 7000);
+    } catch (e) { /* тише едешь — статистика целее */ }
+  },
+  flush: function () {
+    if (this.timer) { clearTimeout(this.timer); this.timer = null; }
+    if (!this.q.length) return;
+    const body = JSON.stringify({ events: this.q.splice(0, 60) });
+    try {
+      if (navigator.sendBeacon) navigator.sendBeacon(this.endpoint, new Blob([body], { type: 'application/json' }));
+      else fetch(this.endpoint, { method: 'POST', body: body, mode: 'no-cors', headers: { 'Content-Type': 'application/json' } }).catch(function () {});
+    } catch (e) {}
+  }
+};
+window.addEventListener('pagehide', () => TL.flush());
 const METRICS = DATA.metrics;
 
 /* ---------- темы ---------- */
@@ -129,6 +153,8 @@ function route() {
   const p = P();
   if (!p) { renderProfiles(); return; }
   touchActivity();
+  if (!h.startsWith('reign/')) TL.curReign = null;
+  if (!TL.logged) { TL.logged = true; TL.send('login', 'монет: ' + p.points); }
   if (!p.briefed && h !== 'intro' && h !== 'admin') { renderIntro(); return; }
   if (h === '' || h === 'map') renderMap();
   else if (h.startsWith('reign/')) renderReign(h.split('/')[1]);
@@ -298,6 +324,7 @@ function renderReign(id) {
   if (!reignUnlocked(idxOfR)) { location.hash = 'map'; return; }
   const p = P();
   const st = getReignState(id);
+  if (!st.session.ended && TL.curReign !== id) { TL.curReign = id; TL.send('reign_open', id); }
 
   // Финальный экран
   if (st.session.ended) { renderReignFinale(r, st); return; }
@@ -378,6 +405,7 @@ function reignChoose(id, cardId, choiceIdx) {
   st.session.minMetrics = Math.min(st.session.minMetrics, ...Object.values(m));
   // лог для родителей
   st.log.push({ card: cardId, choice: choiceIdx, label: ch.label, day: today() });
+  TL.send('choice', id + '/' + cardId + ' ' + (ch.wise ? '(мудрое) ' : '') + ch.label.slice(0, 90));
   st.session.pending = { cardId, choice: choiceIdx };
   // монеты за мудрость (первый раз)
   if (ch.wise && !st.earned['w_' + cardId]) {
@@ -390,6 +418,7 @@ function reignChoose(id, cardId, choiceIdx) {
   // смерть шкалы?
   if (Object.values(m).some(v => v <= 0)) {
     st.session.ended = 'crisis';
+    TL.send('reign_end', id + ' КРИЗИС');
   }
   saveStore();
   renderReign(id);
@@ -401,6 +430,7 @@ function reignReport(id, cardId, choiceIdx) {
   if (!card || card.id !== cardId) return;
   const p = P();
   st.log.push({ card: cardId, choice: choiceIdx, label: card.options[choiceIdx], day: today() });
+  TL.send('report', id + '/' + cardId + (choiceIdx === card.correct ? ' ✔' : ' ✘'));
   st.session.pending = { cardId, choice: choiceIdx };
   if (choiceIdx === card.correct && !st.earned['r_' + cardId]) {
     st.earned['r_' + cardId] = true;
@@ -429,6 +459,7 @@ function finishReign(id) {
   const p = P();
   st.session.ended = 'triumph';
   st.status = 'triumph';
+  TL.send('reign_end', id + ' триумф, летописец: ' + st.session.metrics.chron);
   if (!st.earned['finale']) {
     st.earned['finale'] = true;
     addPoints(50, true);
@@ -541,6 +572,7 @@ function tourAnswer(qid, i) {
   const t = p.tournament;
   const q = DATA.tournament.questions.find(x => x.id === qid);
   t.answers[qid] = i;
+  TL.send('tour', qid + (i === q.correct ? ' ✔' : ' ✘'));
   if (i === q.correct && !t.earned[qid]) {
     t.earned[qid] = true;
     addPoints(10, true);
