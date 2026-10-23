@@ -1,0 +1,12 @@
+{
+  "name": "Престол эпох",
+  "short_name": "Престол",
+  "description": "Симулятор правителя по истории, 6 класс",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#10131a",
+  "theme_color": "#d4af5e",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}
