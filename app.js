@@ -257,6 +257,56 @@ function dayOpt(i) {
     if (btn) { btn.disabled = true; btn.style.opacity = .4; }
   }
 }
+/* ---------- ИИ-наставник «Спросить Летописца» ---------- */
+let askState = { ctx: '', history: [], busy: false };
+function askOpen(ctx) {
+  askState = { ctx: ctx, history: [], busy: false };
+  showModal(`
+    <h2>🤖 Спросить Летописца</h2>
+    <p class="small" style="color:var(--ink-soft)">Летописец не выберет за тебя — он напомнит историю и подскажет, о чём подумать.</p>
+    <div id="ask-log" style="text-align:left;max-height:40vh;overflow:auto;margin:10px 0"></div>
+    <div class="answer-row" style="justify-content:center">
+      <input type="text" id="ask-input" placeholder="Спроси Летописца…" autocomplete="off" style="flex:1;min-width:180px">
+      <button class="gold" data-act="askSend">Спросить</button>
+    </div>
+    <div style="margin-top:8px"><button class="small-btn ghost" data-act="closeModal">Закрыть</button></div>
+  `);
+  renderAskLog();
+  setTimeout(() => { const i = $('ask-input'); if (i) i.focus(); }, 50);
+}
+function renderAskLog() {
+  const box = $('ask-log');
+  if (!box) return;
+  box.innerHTML = askState.history.map(m => m.role === 'user'
+    ? `<div style="background:var(--note-bg);border-radius:10px;padding:8px 12px;margin:6px 0;color:var(--note-ink)"><b>Ты:</b> ${esc(m.text)}</div>`
+    : `<div style="background:var(--hint-bg);border-radius:10px;padding:8px 12px;margin:6px 0"><b>Летописец:</b> ${esc(m.text)}</div>`).join('')
+    + (askState.busy ? '<div class="small muted">Летописец листает хроники…</div>' : '');
+  box.scrollTop = box.scrollHeight;
+}
+async function askSend() {
+  const inp = $('ask-input');
+  if (!inp || askState.busy) return;
+  const q = inp.value.trim();
+  if (!q) return;
+  inp.value = '';
+  askState.history.push({ role: 'user', text: q });
+  askState.busy = true;
+  renderAskLog();
+  const p = P();
+  try {
+    const r = await fetch('https://game-metrics.kirillovd.workers.dev/ask', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ q: q, ctx: askState.ctx, g: 'prestol', p: p ? p.name : '' })
+    });
+    const d = await r.json();
+    askState.history.push({ role: 'bot', text: d.answer || 'Хм. Вспомни, что было раньше в этой истории — и скажи мне, какие силы сталкиваются.' });
+  } catch (e) {
+    askState.history.push({ role: 'bot', text: 'Связь с Летописцем пропала — попробуй ещё раз.' });
+  }
+  askState.busy = false;
+  renderAskLog();
+}
 function reignUnlocked(idx) {
   if (idx === 0) return true;
   const prev = DATA.reigns[idx - 1];
@@ -479,6 +529,7 @@ function renderReign(id) {
           <span class="scene-tag">СЦЕНА ${st.session.idx + 1} ИЗ ${r.cards.length}</span>
           <p>${card.text}</p>
           ${card.choices.map((ch, i) => `<button class="choice-btn" data-act="reignChoose" data-arg="${id}|${card.id}|${i}">${esc(ch.label)}</button>`).join('')}
+          <div style="margin-top:8px"><button class="small-btn ghost" data-act="askScene" data-arg="${id}|${card.id}">🤖 Спросить Летописца</button></div>
         </div>`;
     }
   } else if (card.type === 'report') {
@@ -950,6 +1001,14 @@ document.addEventListener('click', (ev) => {
       break;
     }
     case 'confirmEarly': { const p = P(); p.earlyUnlock = p.earlyUnlock || {}; p.earlyUnlock[arg] = true; saveStore(); closeModal(); route(); break; }
+    case 'askScene': {
+      const [rid, cardId] = arg.split('|');
+      const r = DATA.reigns.find(x => x.id === rid);
+      const card = r && r.cards.find(c => c.id === cardId);
+      if (card) askOpen(card.text);
+      break;
+    }
+    case 'askSend': askSend(); break;
     case 'reignChoose': { const [rid, cardId, i] = arg.split('|'); reignChoose(rid, cardId, +i); break; }
     case 'reignReport': { const [rid, cardId, i] = arg.split('|'); reignReport(rid, cardId, +i); break; }
     case 'reignNext': reignNext(arg); break;
@@ -1037,7 +1096,10 @@ document.addEventListener('change', (ev) => {
     r.readAsText(f);
   }
 });
-document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') closeModal(); });
+document.addEventListener('keydown', (ev) => {
+  if (ev.key === 'Enter' && ev.target && ev.target.id === 'ask-input') { askSend(); return; }
+  if (ev.key === 'Escape') closeModal();
+});
 
 /* ---------- старт ---------- */
 applyTheme();
