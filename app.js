@@ -8,7 +8,7 @@ let safeModalQueue = [];
 /* ---------- утилиты ---------- */
 function $(id) { return document.getElementById(id); }
 function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
-function today() { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+function today(off) { const d = new Date(); if (off) d.setDate(d.getDate() + off); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
 function loadStore() {
   try {
     const raw = localStorage.getItem(STORE_KEY);
@@ -49,6 +49,39 @@ const TL = {
   }
 };
 window.addEventListener('pagehide', () => TL.flush());
+
+/* ---------- похвала, история, письма Летописца ---------- */
+const PRAISE = ['Мудрейшее решение! 👑', 'Летописец аплодирует!', 'Так правят великие!', 'Блестящий ход, государь!', 'Такие решения вносят в хроники!', 'Народ бы одобрил!'];
+function praiseToast() { toast(PRAISE[Math.floor(Math.random() * PRAISE.length)]); }
+function hist(k, x) {
+  const p = P();
+  p.history = p.history || [];
+  p.history.push({ d: today(), k: k, x: String(x || '').slice(0, 90) });
+  if (p.history.length > 400) p.history.splice(0, p.history.length - 400);
+  saveStore();
+}
+function buildChronLetter(id) {
+  const r = DATA.reigns.find(x => x.id === id);
+  const st = getReignState(id);
+  const m = st.session.metrics;
+  const best = METRICS.reduce((a, b) => m[a.key] >= m[b.key] ? a : b);
+  const worst = METRICS.reduce((a, b) => m[a.key] <= m[b.key] ? a : b);
+  const praiseMap = {
+    army: 'Держава твоя крепка: под твоим стягом дружины идут охотно, а враги считают дважды.',
+    people: 'Народ тебя любит — а это дороже золота и мечей вместе взятых.',
+    gold: 'Казна полна: замыслы твои обеспечены, а слово «не на что» тебе не знакомо.',
+    chron: 'Летописцы спорят, кому приписать тебя в хрониках, — и переписывают твоё имя каллиграфически.'
+  };
+  const adviceMap = {
+    army: 'Но держи в уме: Держава твоя пошатнулась — береги дружину и не лезь в бой без нужды.',
+    people: 'Но помни: Народ ропщет. Голодный или обиженный народ прощает всё, кроме равнодушия князя.',
+    gold: 'Но помни: Казна пуста. Богатая земля — спокойная земля; умей копить.',
+    chron: 'Но помни: Летописец хмур. История смотрит не только на победы, но и на справедливость.'
+  };
+  return '<p>Правитель <b>' + esc(P().name) + '</b>! Правление «' + esc(r.title) + '» (' + esc(r.years) + ') завершено. Летопись пишется — и в ней о тебе скажут так:</p>' +
+    '<p>' + praiseMap[best.key] + '</p><p>' + adviceMap[worst.key] + '</p>' +
+    '<div style="text-align:right;font-style:italic;margin-top:8px">Записано и сохранено.<br>Твой Летописец 📜</div>';
+}
 const METRICS = DATA.metrics;
 
 /* ---------- темы ---------- */
@@ -500,6 +533,8 @@ function reignChoose(id, cardId, choiceIdx) {
   // лог для родителей
   st.log.push({ card: cardId, choice: choiceIdx, label: ch.label, day: today() });
   TL.send('choice', id + '/' + cardId + ' ' + (ch.wise ? '(мудрое) ' : '') + ch.label.slice(0, 90));
+  if (ch.wise) praiseToast();
+  hist('choice', r.title + ': ' + ch.label.slice(0, 60));
   st.session.pending = { cardId, choice: choiceIdx };
   // монеты за мудрость (первый раз)
   if (ch.wise && !st.earned['w_' + cardId]) {
@@ -509,9 +544,17 @@ function reignChoose(id, cardId, choiceIdx) {
   }
   unlockAch('a_first');
   if ((p.wiseCount || 0) >= 10) unlockAch('a_wise');
-  // смерть шкалы?
+  // предупреждение о низкой шкале и смерть шкалы?
+  st.session.warned = st.session.warned || {};
+  for (const mt of METRICS) {
+    if (m[mt.key] <= 2 && m[mt.key] > 0 && !st.session.warned[mt.key]) {
+      st.session.warned[mt.key] = true;
+      toast('⚠️ ' + mt.name + ' на исходе («' + mt.hint + '») — следующий выбор может всё решить.');
+    }
+  }
   if (Object.values(m).some(v => v <= 0)) {
     st.session.ended = 'crisis';
+    hist('crisis', 'Кризис правления: ' + r.title);
     TL.send('reign_end', id + ' КРИЗИС');
   }
   saveStore();
@@ -554,6 +597,11 @@ function finishReign(id) {
   st.session.ended = 'triumph';
   st.status = 'triumph';
   TL.send('reign_end', id + ' триумф, летописец: ' + st.session.metrics.chron);
+  hist('reign_end', 'Правление завершено: ' + r.title);
+  const p2 = P();
+  p2.chronLetters = p2.chronLetters || {};
+  p2.chronLetters[id] = buildChronLetter(id);
+  saveStore();
   if (!st.earned['finale']) {
     st.earned['finale'] = true;
     addPoints(50, true);
@@ -594,6 +642,7 @@ function renderReignFinale(r, st) {
         <p style="font-size:1.25em"><b>${esc(finTitle)}</b></p>
         <p class="small muted">+50 🪙 за завершение${st.session.minMetrics >= 3 ? ' · +30 🪙 за мудрое правление' : ''}</p>
       </div>`}
+    ${!isCrisis && P().chronLetters && P().chronLetters[r.id] ? `<div class="paper" style="border:2px solid var(--gold)"><h4>📩 Письмо от Летописца</h4>${P().chronLetters[r.id]}</div>` : ''}
     <div class="metrics">${metricBarHtml(st.session.metrics)}</div>
     <div class="paper">
       <h4>Твои решения</h4>
@@ -738,6 +787,22 @@ function saveProgress() {
 }
 
 /* ---------- родителям ---------- */
+function weekReportHtml() {
+  const p = P();
+  const H = p.history || [];
+  const days = [];
+  for (let i = 6; i >= 0; i--) days.push(today(-i));
+  const names = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'];
+  const rows = days.map(d => {
+    const evs = H.filter(h => h.d === d);
+    const wd = names[new Date(d).getDay()];
+    if (!evs.length) return '<div class="prize-row"><span class="small muted">' + wd + ' ' + d.slice(5) + ' — тишина</span></div>';
+    const parts = evs.map(h => esc(h.x));
+    return '<div class="prize-row"><div style="flex:1;min-width:0"><b>' + wd + ' ' + d.slice(5) + '</b><div class="small muted">' + parts.slice(0, 8).join(' · ') + (parts.length > 8 ? ' …' : '') + '</div></div></div>';
+  });
+  const active = days.filter(d => H.some(h => h.d === d)).length;
+  return rows.join('') + '<p class="small muted">Дней с занятиями за неделю: ' + active + ' из 7. Серия вопроса дня: ' + ((p.flame && p.flame.streak) || 0) + ' 🔥 (рекорд ' + ((p.flame && p.flame.best) || 0) + ').</p>';
+}
 function adminChronicleHtml() {
   const p = P();
   if (!p) return '';
@@ -791,6 +856,7 @@ function renderAdmin() {
       <p class="small">Все выборы правителя — чтобы видеть, как ребёнок рассуждает.</p>
       ${adminChronicleHtml()}
     </div>
+    <div class="admin-box"><h3>Отчёт за неделю</h3>${weekReportHtml()}</div>
     <div class="admin-box"><h3>Полезно знать</h3>
       <ul class="small">
         <li>Мудрые решения (+10🪙) и верные донесения (+20🪙) начисляются один раз — переигрывание не фармит казну.</li>
