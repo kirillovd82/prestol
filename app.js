@@ -311,7 +311,7 @@ function reignUnlocked(idx) {
   if (idx === 0) return true;
   const prev = DATA.reigns[idx - 1];
   const st = P().reigns[prev.id];
-  return !!(st && st.status) || !!(P().earlyUnlock && P().earlyUnlock[DATA.reigns[idx].id]);
+  return !!(st && st.status === 'triumph') || !!(P().earlyUnlock && P().earlyUnlock[DATA.reigns[idx].id]);
 }
 function reignStats(id) {
   const r = DATA.reigns.find(x => x.id === id);
@@ -605,6 +605,7 @@ function reignChoose(id, cardId, choiceIdx) {
   }
   if (Object.values(m).some(v => v <= 0)) {
     st.session.ended = 'crisis';
+    st.status = 'crisis';
     hist('crisis', 'Кризис правления: ' + r.title);
     TL.send('reign_end', id + ' КРИЗИС');
   }
@@ -713,6 +714,7 @@ function reignRestart(id) {
   const st = getReignState(id);
   const r = DATA.reigns.find(x => x.id === id);
   st.session = { idx: 0, metrics: Object.assign({}, r.start), pending: null, minMetrics: Math.min(...Object.values(r.start)), ended: null };
+  st.status = null;
   st.log = [];
   saveStore();
   renderReign(id);
