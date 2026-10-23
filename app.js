@@ -939,10 +939,13 @@ function closeModal() {
   if (safeModalQueue.length) showNextSafe();
 }
 function toast(text, cls) {
+  const wrap = $('toast-wrap');
+  for (const el of [...wrap.children]) if (el.textContent === text) return;
+  while (wrap.children.length >= 3) wrap.removeChild(wrap.firstChild);
   const t = document.createElement('div');
   t.className = 'toast ' + (cls || '');
   t.textContent = text;
-  $('toast-wrap').appendChild(t);
+  wrap.appendChild(t);
   setTimeout(() => t.remove(), 4200);
 }
 function confetti() {
