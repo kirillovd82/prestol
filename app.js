@@ -26,7 +26,7 @@ function titleFor(points) {
 
 /* ---------- телеметрия (статистика для родителей) ---------- */
 const TL = {
-  endpoint: 'https://game-metrics.kirillovd.workers.dev/track',
+  endpoint: 'https://www.polus14.ru/api/track',
   q: [], timer: null, logged: false, curReign: null,
   send: function (t, d) {
     try {
@@ -294,7 +294,7 @@ async function askSend() {
   renderAskLog();
   const p = P();
   try {
-    const r = await fetch('https://game-metrics.kirillovd.workers.dev/ask', {
+    const r = await fetch('https://www.polus14.ru/api/ask', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ q: q, ctx: askState.ctx, g: 'prestol', p: p ? p.name : '' })
